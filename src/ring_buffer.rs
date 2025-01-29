@@ -1,132 +1,134 @@
 use std::cell::UnsafeCell;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
-/// A lock-free ring buffer implementation with fixed capacity.
-/// This structure is thread-safe and can be used in concurrent environments.
+/// Lock-free кольцевой буфер с фиксированной ёмкостью.
+/// Эта структура потокобезопасна и может использоваться в многопоточной среде.
 pub struct RingBuffer<T> {
-    buffer: Vec<UnsafeCell<Option<T>>>, // Internal storage for data
-    size: usize,                        // Fixed capacity of the buffer
-    write_index: AtomicUsize,           // Write pointer
-    read_index: AtomicUsize,            // Read pointer
+    buffer: Vec<UnsafeCell<Option<T>>>, // Внутренний массив для хранения данных
+    size: usize,                        // Фиксированная ёмкость буфера
+    write_index: AtomicUsize,           // Указатель на запись (write head)
+    read_index: AtomicUsize,            // Указатель на чтение (read head)
 }
 
-// Ensure the buffer is thread-safe by implementing Sync
+// Объявляем буфер потокобезопасным, так как UnsafeCell по умолчанию не является Sync.
 unsafe impl<T> Sync for RingBuffer<T> {}
 
 impl<T> RingBuffer<T> {
-    /// Creates a new `RingBuffer` with the given fixed size.
+    /// Создаёт новый `RingBuffer` заданного размера.
     ///
-    /// # Arguments
+    /// # Аргументы
     ///
-    /// * `size` - The maximum number of elements the buffer can hold.
+    /// * `size` - Максимальное количество элементов, которое может хранить буфер.
     ///
-    /// # Returns
+    /// # Возвращает
     ///
-    /// A new instance of `RingBuffer`.
+    /// Новый экземпляр `RingBuffer`.
     pub fn new(size: usize) -> Self {
         let mut buffer = Vec::with_capacity(size);
         for _ in 0..size {
-            buffer.push(UnsafeCell::new(None)); // Initialize the buffer with empty cells
+            buffer.push(UnsafeCell::new(None)); // Заполняем буфер пустыми ячейками
         }
 
         RingBuffer {
             buffer,
             size,
-            write_index: AtomicUsize::new(0), // Start with write index at 0
-            read_index: AtomicUsize::new(0),  // Start with read index at 0
+            write_index: AtomicUsize::new(0), // Начальный индекс записи - 0
+            read_index: AtomicUsize::new(0),  // Начальный индекс чтения - 0
         }
     }
 
-    /// Pushes an element into the buffer.
+    /// Добавляет элемент в буфер.
     ///
-    /// # Arguments
+    /// # Аргументы
     ///
-    /// * `value` - The value to be inserted into the buffer.
+    /// * `value` - Значение, которое нужно вставить в буфер.
     ///
-    /// # Returns
+    /// # Возвращает
     ///
-    /// `Ok(())` if the element was successfully inserted.  
-    /// `Err(value)` if the buffer is full.
+    /// `Ok(())`, если элемент успешно добавлен.  
+    /// `Err(value)`, если буфер заполнен.
     pub fn push(&self, value: T) -> Result<(), T> {
         loop {
-            let write = self.write_index.load(Ordering::Acquire); // Load the current write index
-            let read = self.read_index.load(Ordering::Acquire); // Load the current read index
+            let write = self.write_index.load(Ordering::Acquire); // Загружаем текущий индекс записи
+            let read = self.read_index.load(Ordering::Acquire); // Загружаем текущий индекс чтения
 
-            // Check if the buffer is full
+            // Проверяем, заполнен ли буфер
             if write - read >= self.size {
-                return Err(value);
+                return Err(value); // Буфер полон, возврат ошибки
             }
 
-            let cell = &self.buffer[write % self.size]; // Find the position to write
+            let cell = &self.buffer[write % self.size]; // Определяем ячейку для записи
 
-            // Perform a Compare-And-Swap (CAS) operation on the write index
+            // Пробуем атомарно обновить индекс записи с помощью CAS (Compare-And-Swap)
             if self
                 .write_index
-                .compare_exchange(
-                    write,     // Expected value
-                    write + 1, // New value
+                .compare_exchange_weak(
+                    write,     // Ожидаемое значение
+                    write + 1, // Новое значение (сдвигаем указатель вперёд)
                     Ordering::Release,
                     Ordering::Relaxed,
                 )
                 .is_ok()
             {
-                // CAS was successful, write the value to the cell
+                // Если CAS успешно сработал, записываем значение в ячейку
                 unsafe {
                     let slot = &mut *cell.get();
-                    *slot = Some(value); // Safely write the value
+                    *slot = Some(value); // Безопасная запись данных
                 }
-                return Ok(()); // Successfully inserted the value
+                return Ok(()); // Операция записи завершена успешно
             }
 
-            // If CAS fails, retry the operation
+            // Если CAS не сработал (другой поток изменил индекс), повторяем попытку
         }
     }
 
-    /// Pops an element from the buffer.
+    /// Извлекает элемент из буфера.
     ///
-    /// # Returns
+    /// # Возвращает
     ///
-    /// `Some(value)` if an element was successfully retrieved.  
-    /// `None` if the buffer is empty.
+    /// `Some(value)`, если элемент успешно прочитан.  
+    /// `None`, если буфер пуст.
     pub fn pop(&self) -> Option<T> {
         loop {
-            let read = self.read_index.load(Ordering::Acquire); // Load the current read index
-            let write = self.write_index.load(Ordering::Acquire); // Load the current write index
+            let read = self.read_index.load(Ordering::Acquire); // Загружаем текущий индекс чтения
+            let write = self.write_index.load(Ordering::Acquire); // Загружаем текущий индекс записи
 
             if read == write {
-                // Buffer is empty, nothing to read
+                // Если индексы равны, значит, буфер пуст
                 return None;
             }
 
-            let cell = &self.buffer[read % self.size]; // Find the position to read
+            let cell = &self.buffer[read % self.size]; // Определяем ячейку для чтения
 
             unsafe {
                 if let Some(value) = (*cell.get()).take() {
-                    // If the cell contains a value, extract it
+                    // Если в ячейке есть данные, извлекаем их
 
-                    // Update the read index using CAS
+                    // Пробуем обновить индекс чтения атомарно с помощью CAS
                     if self
                         .read_index
-                        .compare_exchange(read, read + 1, Ordering::Release, Ordering::Relaxed)
+                        .compare_exchange_weak(read, read + 1, Ordering::Release, Ordering::Relaxed)
                         .is_ok()
                     {
-                        return Some(value);
+                        return Some(value); // Успешно прочитали и обновили индекс
                     }
                 }
             }
+
+            // Если CAS не сработал, пробуем снова
         }
     }
 
-    /// Clears the buffer by resetting both read and write indices and removing all elements.
+    /// Очищает буфер, сбрасывая индексы чтения и записи.
     pub fn clear(&self) {
-        // Reset the read and write indices
+        // Устанавливаем индексы чтения и записи в начальное состояние
         self.write_index.store(0, Ordering::Release);
         self.read_index.store(0, Ordering::Release);
 
-        // Clear all elements in the buffer
+        // Удаляем все элементы из буфера
         for cell in &self.buffer {
             unsafe {
-                (*cell.get()).take();
+                (*cell.get()).take(); // Обнуляем содержимое каждой ячейки
             }
         }
     }
