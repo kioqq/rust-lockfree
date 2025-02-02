@@ -34,6 +34,7 @@ impl<T> Node<T> {
 ///  - `tail`: указывает на последний узел
 ///
 /// Изначально head=tail указывают на dummy-узел.
+#[derive(Default)]
 pub struct MSQueue<T> {
     head: Atomic<Node<T>>,
     tail: Atomic<Node<T>>,
@@ -267,8 +268,8 @@ mod tests {
         let mut final_vec = results.lock().unwrap().clone();
         final_vec.sort();
         assert_eq!(final_vec.len(), 200);
-        for i in 0..200 {
-            assert_eq!(final_vec[i], i as i32);
+        for (i, val) in final_vec.iter().enumerate().take(200) {
+            assert_eq!(*val, i as i32);
         }
     }
 

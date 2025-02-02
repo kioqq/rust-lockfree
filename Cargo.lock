@@ -497,6 +497,7 @@ dependencies = [
  "criterion",
  "crossbeam-epoch",
  "once_cell",
+ "parking_lot",
  "tokio",
 ]
 

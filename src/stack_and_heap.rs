@@ -48,8 +48,8 @@ pub fn stack_example() {
 
 // Глубокие рекурсивные вызовы могут привести к stack overflow.
 #[allow(unconditional_recursion)]
-pub fn stack_overflow_example(x: u32) {
-    stack_overflow_example(x + 1);
+pub fn stack_overflow_example(_x: u32) {
+    stack_overflow_example(_x + 1);
 }
 
 // Как изменить размер стека?

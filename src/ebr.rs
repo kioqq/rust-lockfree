@@ -69,13 +69,13 @@ struct LocalData {
 // thread_local! хранит Option<LocalData> для каждого потока.
 // Если None, значит поток ещё не зарегистрирован.
 thread_local! {
-    static LOCAL_DATA: RefCell<Option<LocalData>> = RefCell::new(None);
+    static LOCAL_DATA: RefCell<Option<LocalData>> = const { RefCell::new(None) };
 }
 
-/// Guard, возвращаемый из `pin()`.
-/// Пока существует Guard, поток считается "pinned":
-/// - local_epoch != UNPINNED_EPOCH.
-/// При дропе Guard делаем `unpin()` (local_epoch = UNPINNED_EPOCH).
+//  Guard, возвращаемый из `pin()`.
+//  Пока существует Guard, поток считается "pinned":
+//  - local_epoch != UNPINNED_EPOCH.
+//  При дропе Guard делаем `unpin()` (local_epoch = UNPINNED_EPOCH).
 pub struct Guard {
     index: usize,
     epoch: usize,
@@ -126,11 +126,11 @@ fn auto_register_thread() -> usize {
     panic!("No free slot in EBR threads (increase MAX_THREADS)");
 }
 
-/// pin():
-/// 1) Если поток ещё не зарегистрирован, вызываем auto_register_thread().
-/// 2) Считываем global_epoch.
-/// 3) Записываем local_epoch = global_epoch (тем самым "закрепляемся").
-/// Возвращаем Guard, который при дропе unpin'ит поток.
+// pin():
+// 1) Если поток ещё не зарегистрирован, вызываем auto_register_thread().
+// 2) Считываем global_epoch.
+// 3) Записываем local_epoch = global_epoch (тем самым "закрепляемся").
+// Возвращаем Guard, который при дропе unpin'ит поток.
 pub fn pin() -> Guard {
     let thr_id = LOCAL_DATA.with(|ld| {
         if ld.borrow().is_none() {

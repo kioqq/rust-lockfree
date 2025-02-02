@@ -10,6 +10,7 @@ struct Node<T> {
 }
 
 /// Lock-Free стек (Treiber Stack)
+#[derive(Default)]
 pub struct TreiberStack<T> {
     head: AtomicPtr<Node<T>>, // Атомарный указатель на верхний элемент стека
 }
