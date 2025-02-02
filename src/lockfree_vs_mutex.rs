@@ -5,11 +5,12 @@ use std::time::Instant;
 
 // Lock-free алгоритмы позволяют избежать блокировок, что улучшает производительность.
 // Однако они сложны в реализации и могут быть менее безопасными.
-pub fn lockfree_vs_mutex() {
+pub async fn lockfree_vs_mutex() {
     let num_threads = 4;
     let iterations = 1_000_000;
 
     let counter_mutex = Arc::new(Mutex::new(0));
+    let counter_async_mutex = Arc::new(tokio::sync::Mutex::new(0));
     let counter_atomic = Arc::new(AtomicUsize::new(0));
 
     // Тест Mutex
@@ -30,6 +31,24 @@ pub fn lockfree_vs_mutex() {
     }
     let duration_mutex = start.elapsed();
 
+    // Тест async Mutex
+    let start = Instant::now();
+    let mut handles = vec![];
+    for _ in 0..num_threads {
+        let counter = Arc::clone(&counter_async_mutex);
+        let handle = tokio::spawn(async move {
+            for _ in 0..iterations {
+                let mut num = counter.lock().await;
+                *num += 1;
+            }
+        });
+        handles.push(handle);
+    }
+    for handle in handles {
+        tokio::try_join!(handle).unwrap();
+    }
+    let duration_async_mutex = start.elapsed();
+
     // Тест Lock-Free (AtomicUsize)
     let start = Instant::now();
     let mut handles = vec![];
@@ -49,14 +68,17 @@ pub fn lockfree_vs_mutex() {
 
     println!("\n########################################################");
     println!("Mutex: {:?}", duration_mutex);
+    println!("Async Mutex: {:?}", duration_async_mutex);
     println!("Lock-Free: {:?}", duration_atomic);
     println!("########################################################");
 
     // Вывод результатов
-    let counter_mutex_value = counter_mutex.lock().unwrap();
+    let counter_mutex_value = *counter_mutex.lock().unwrap();
+    let counter_async_mutex_value = *counter_async_mutex.lock().await;
     let counter_atomic_value = counter_atomic.load(Ordering::Relaxed);
 
     println!("\nCounter Mutex: {:?}", counter_mutex_value);
+    println!("\nCounter Async Mutex: {:?}", counter_async_mutex_value);
     println!("Counter Atomic: {:?}", counter_atomic_value);
 }
 
@@ -64,8 +86,8 @@ pub fn lockfree_vs_mutex() {
 mod tests {
     use super::*;
 
-    #[test]
-    fn test_lockfree_vs_mutex() {
-        lockfree_vs_mutex();
+    #[tokio::test]
+    async fn test_lockfree_vs_mutex() {
+        lockfree_vs_mutex().await;
     }
 }
